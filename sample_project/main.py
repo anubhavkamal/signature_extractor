@@ -10,6 +10,7 @@
 import os
 # pdf2image removed; using pypdfium2/PyMuPDF backends
 import cv2
+from PIL import Image
 
 import color_correlation
 import dewapper
@@ -17,42 +18,58 @@ import signature_extractor
 import unsharpen
 
 
-def convert_pdf_to_images(pdf_path, dpi=200):
-    """Convert PDF to page images and return list of filenames, without Poppler."""
-    # Preferred: pypdfium2 (no system dependencies)
+def convert_pdf_to_images(pdf_path, dpi=300):
+    """Convert PDF to page images and return list of filenames, without Poppler.
+
+    Order: prefer PyMuPDF (handles many transparency cases) then pypdfium2.
+    """
+    # First: PyMuPDF (fitz)
+    try:
+        import fitz  # PyMuPDF
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        doc = fitz.open(pdf_path)
+        image_files = []
+        for i, page in enumerate(doc, start=1):
+            # Preserve alpha to avoid transparency flattening artifacts, then composite on white
+            pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB, alpha=True, annots=False)
+            img_rgba = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+            img_rgb = Image.alpha_composite(
+                Image.new("RGBA", img_rgba.size, (255, 255, 255, 255)),
+                img_rgba
+            ).convert("RGB")
+            out = f"page_{i}.jpg"
+            img_rgb.save(out, "JPEG", quality=95, subsampling=0)
+            image_files.append(out)
+        doc.close()
+        return image_files
+    except ImportError:
+        pass
+
+    # Fallback: pypdfium2
     try:
         import pypdfium2 as pdfium
         pdf = pdfium.PdfDocument(pdf_path)
         n_pages = len(pdf)
         image_files = []
-        scale = dpi / 72  # PDF points -> pixels
+        scale = dpi / 72.0  # PDF points -> pixels
         for i in range(n_pages):
             page = pdf[i]
-            pil_image = page.render(scale=scale).to_pil()
+            pil_image = page.render(scale=scale, annotations=False).to_pil()
+            # Ensure opaque background in case of transparency to avoid black blocks
+            if pil_image.mode == "RGBA":
+                pil_image = Image.alpha_composite(
+                    Image.new("RGBA", pil_image.size, (255, 255, 255, 255)),
+                    pil_image
+                ).convert("RGB")
+            else:
+                pil_image = pil_image.convert("RGB")
             out = f"page_{i + 1}.jpg"
-            pil_image.save(out, "JPEG")
+            pil_image.save(out, "JPEG", quality=95, subsampling=0)
             image_files.append(out)
         return image_files
-    except ImportError:
-        pass
-
-    # Fallback: PyMuPDF (imported as fitz)
-    try:
-        import fitz  # PyMuPDF
     except ImportError as e:
-        raise RuntimeError("No PDF rendering backend available. Install pypdfium2 or pymupdf.") from e
-
-    zoom = dpi / 72
-    mat = fitz.Matrix(zoom, zoom)
-    doc = fitz.open(pdf_path)
-    image_files = []
-    for i, page in enumerate(doc, start=1):
-        pix = page.get_pixmap(matrix=mat, alpha=False)
-        out = f"page_{i}.jpg"
-        pix.save(out)
-        image_files.append(out)
-    doc.close()
-    return image_files
+        raise RuntimeError("No PDF rendering backend available. Install pymupdf or pypdfium2.") from e
 
 
 # Resolve base dir and locate the PDF robustly
