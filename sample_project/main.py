@@ -8,7 +8,7 @@
 # -----------------------------------------
 
 import os
-from pdf2image import convert_from_path
+# pdf2image removed; using pypdfium2/PyMuPDF backends
 import cv2
 
 import color_correlation
@@ -17,14 +17,41 @@ import signature_extractor
 import unsharpen
 
 
-def convert_pdf_to_images(pdf_path):
-    """Convert PDF to page images and return list of filenames."""
-    images = convert_from_path(pdf_path)
+def convert_pdf_to_images(pdf_path, dpi=200):
+    """Convert PDF to page images and return list of filenames, without Poppler."""
+    # Preferred: pypdfium2 (no system dependencies)
+    try:
+        import pypdfium2 as pdfium
+        pdf = pdfium.PdfDocument(pdf_path)
+        n_pages = len(pdf)
+        image_files = []
+        scale = dpi / 72  # PDF points -> pixels
+        for i in range(n_pages):
+            page = pdf[i]
+            pil_image = page.render(scale=scale).to_pil()
+            out = f"page_{i + 1}.jpg"
+            pil_image.save(out, "JPEG")
+            image_files.append(out)
+        return image_files
+    except ImportError:
+        pass
+
+    # Fallback: PyMuPDF (imported as fitz)
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as e:
+        raise RuntimeError("No PDF rendering backend available. Install pypdfium2 or pymupdf.") from e
+
+    zoom = dpi / 72
+    mat = fitz.Matrix(zoom, zoom)
+    doc = fitz.open(pdf_path)
     image_files = []
-    for i, image in enumerate(images):
-        image_file = f"page_{i + 1}.jpg"
-        image.save(image_file, "JPEG")
-        image_files.append(image_file)
+    for i, page in enumerate(doc, start=1):
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        out = f"page_{i}.jpg"
+        pix.save(out)
+        image_files.append(out)
+    doc.close()
     return image_files
 
 
