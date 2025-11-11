@@ -43,12 +43,12 @@ def dewarp_book(image):
     sigma = 0.33
 
     # compute the median of the single channel pixel intensities
-    v = np.median(image)
+    v = np.median(gray)
 
     # apply automatic Canny edge detection using the computed median
     lower = int(max(0, (1.0 - sigma) * v))
     upper = int(min(255, (1.0 + sigma) * v))
-    edged = cv2.Canny(image, lower, upper)
+    edged = cv2.Canny(gray, lower, upper)
 
     # perform dilate morphological filter to connect teh image pixel points
     '''kernel = np.ones((5,5),np.uint8)
@@ -67,6 +67,18 @@ def dewarp_book(image):
         if len(approx) == 4:
             screenCnt = approx
             break
+    # check if screenCnt is initialized; provide fallbacks
+    if 'screenCnt' not in locals():
+        # fallback 1: try the largest contour's min-area rectangle as a proxy quadrilateral
+        if len(cnts) > 0:
+            largest = max(cnts, key=cv2.contourArea)
+            rect = cv2.minAreaRect(largest)
+            box = cv2.boxPoints(rect)
+            screenCnt = np.int0(box)
+        else:
+            # fallback 2: return original image so pipeline can continue
+            return orig
+
     # apply the four point transform for book dewarping
     warped = four_point_transform(orig, screenCnt.reshape(4, 2) * ratio)
     return warped

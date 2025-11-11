@@ -66,7 +66,7 @@ def extract_signature(source_image):
             if (region.area > the_biggest_component):
                 the_biggest_component = region.area
 
-    average = (total_area/counter)
+    average = (total_area / counter) if counter > 0 else 0.0
     print("the_biggest_component: " + str(the_biggest_component))
     print("average: " + str(average))
 
@@ -83,7 +83,7 @@ def extract_signature(source_image):
     print("a4_big_size_outliar_constant: " + str(a4_big_size_outliar_constant))
 
     # remove the connected pixels are smaller than a4_small_size_outliar_constant
-    pre_version = morphology.remove_small_objects(blobs_labels, a4_small_size_outliar_constant)
+    pre_version = morphology.remove_small_objects(blobs_labels, int(a4_small_size_outliar_constant))
     # remove the connected pixels are bigger than threshold a4_big_size_outliar_constant 
     # to get rid of undesired connected pixels such as table headers and etc.
     component_sizes = np.bincount(pre_version.ravel())
